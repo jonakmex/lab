@@ -1,0 +1,47 @@
+flowchart LR
+  subgraph Inbound
+    KAFKA["Kafka Topic
+business.direct-banking.cross-product.production-management.card-fulfillment-processing.validation"]
+  end
+
+  subgraph App["Card Perso Validator Service
+com.discover.cardfp.CardPersoValidatorSvcApplication"]
+    RT1["REST: cardpersoapi"]
+    RT2["REST: authapi"]
+    AWSSECRETS["AWS Secrets file
+/var/secrets/s3/s3cred.properties"]
+    KMS["KMS / JWECryptoUtil - kms-config"]
+    VALID["Validation Engine - Business rules"]
+    AVRO["Avro schema - org.apache.avro:avro-tools 1.12.0"]
+    FLYWAY["Flyway DB Migrations"]
+  end
+
+  subgraph AWS["AWS S3"]
+    S3IN["Encrypted Request (incoming/)"]
+    S3PROCESSED["Encrypted Request (processed/) with status=SUCCESS"]
+  end
+
+  subgraph Data["PostgreSQL
+cardpersodb"]
+    DB["Update status/records"]
+  end
+
+  subgraph Outbound
+    ERRQ["Kafka: business.direct-banking.cross-product.production-management.production-status.status-update"]
+  end
+
+  KAFKA -->|Metadata| App
+  App -->|Fetch object| S3IN
+  App -->|Use creds| AWSSECRETS
+  App -->|Decrypt/Encrypt| KMS
+
+  App -->|Validate| VALID
+  RT1 --> App
+  RT2 --> App
+
+  VALID -->|OK| DB
+  VALID -->|OK| S3PROCESSED
+  VALID -->|ERROR| AVRO
+  AVRO -->|Publish error event| ERRQ
+
+  FLYWAY --- DB
